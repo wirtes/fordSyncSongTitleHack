@@ -1,4 +1,4 @@
-#!/Library/Frameworks/Python.framework/Versions/3.10/bin/python3
+#!/Library/Frameworks/Python.framework/Versions/3.11/bin/python3
 
 import os
 from music_tag import load_file
@@ -18,7 +18,7 @@ def update_metadata(directory):
             tracks_processed += 1
             if filename.endswith('.mp3') or filename.endswith('.m4a'):
                 # Print a dot every 50 tracks
-                if tracks_processed % 50 == 0:
+                if tracks_processed % 100 == 0:
                     print("Processed " + str(tracks_processed) + " tracks")
                 file_path = os.path.join(root, filename)
                 try:
@@ -46,5 +46,5 @@ def update_metadata(directory):
 
 
 # Provide the directory path where the MP3 files are located
-directory_path = "/Volumes/USB/Albums"
+directory_path = "/Volumes/USB64/Albums"
 update_metadata(directory_path)
