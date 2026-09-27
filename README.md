@@ -11,6 +11,12 @@ After:   title = 01 - London Calling
 
 The result is ugly metadata made necessary by uglier playback software, but it makes albums play in the intended order.
 
+The script also compensates for two other SYNC metadata problems:
+
+- Compilation tracks become `03 - Song Title (Track Artist)`, and their artist tag is changed to the album name so the compilation stays together in SYNC. A track is treated as a compilation when its compilation flag is set or its album artist is `Various Artists`.
+- Compilation filenames have a leading `Track Artist - ` segment removed. For example, `1-07. Art Blakey - Afrique.mp3` becomes `1-07. Afrique.mp3`, and `1-01. Lou Rawls - Lifetime Monologue.mp3` becomes `1-01. Lifetime Monologue.mp3`.
+- Multi-disc albums use one continuous title prefix and track-number sequence. If disc one ends at track 12, disc two starts at track 13, and every disc-number tag is normalized to `1`.
+
 ## Read this before running it
 
 > **This script makes destructive, irreversible changes. Run it only on a USB copy of your library—never on your master music collection.**
@@ -29,16 +35,16 @@ The configured music directory is scanned recursively. Hidden files and director
 
 | Input | Result |
 | --- | --- |
-| Unprocessed `.mp3` | Prefixes the title tag with a two-digit track number and adds the processed marker. The audio stream is untouched. |
-| Unprocessed `.m4a` | Converts it to a 192 kbps, 44.1 kHz, stereo MP3; updates the title; verifies the result; installs the `.mp3`; then deletes the `.m4a`. |
-| MP3 already marked `Ford Sync REALLY Sucks` | Skips it, preventing another title prefix. |
-| MP3 marked by the older script with `Ford Sync Sucks` | Updates only the marker. It does not alter the title again or re-encode the audio. |
-| M4A marked by the older script | Converts it to MP3 without adding a duplicate track-number prefix. |
+| Unprocessed `.mp3` | Prefixes the title with its album-wide track number, applies compilation metadata, cleans a compilation artist from the filename when present, and adds the processed marker. The audio stream is untouched. |
+| Unprocessed `.m4a` | Converts it to a 192 kbps, 44.1 kHz, stereo MP3; updates its metadata; verifies the result; installs the `.mp3`; then deletes the `.m4a`. |
+| MP3 already marked `Ford Sync REALLY Sucks v5` | Skips its metadata; a matching compilation artist is still removed from its filename if needed. |
+| MP3 marked by an older script | Rebuilds its title using the new compilation and multi-disc rules, replaces the old marker, and leaves its audio untouched. |
+| M4A marked by an older script | Converts it to MP3 while replacing its old numeric prefix rather than adding a duplicate. |
 
 Successfully processed files receive this comment tag:
 
 ```text
-Ford Sync REALLY Sucks
+Ford Sync REALLY Sucks v5
 ```
 
 That marker makes repeat runs safe for already-processed MP3 files. It also lets you add new music to the USB drive later and run the script again: old MP3s are skipped and new tracks are processed.
@@ -49,6 +55,8 @@ That marker makes repeat runs safe for already-processed MP3 files. It also lets
 - [`music-tag`](https://pypi.org/project/music-tag/)
 - [`ffmpeg`](https://ffmpeg.org/) and `ffprobe` available on your `PATH`
 - Music files with non-empty `title` and `tracknumber` metadata
+- Correct `album`, `albumartist`, `discnumber`, and `totaldiscs` metadata for multi-disc grouping
+- Non-empty `artist` and `album` metadata for compilation tracks
 
 The track number must be readable as an integer. Values such as `1`, `2`, and `12` work. If a tagging application stores a value such as `1/10`, normalize it to `1` before running the script.
 
@@ -180,7 +188,7 @@ After processing:
 File:        Born Under Punches.mp3
 title:       01 - Born Under Punches (The Heat Goes On)
 tracknumber: 1
-comment:     Ford Sync REALLY Sucks
+comment:     Ford Sync REALLY Sucks v5
 audio:       unchanged
 ```
 
@@ -191,7 +199,7 @@ Given `London Calling.m4a` with title `London Calling` and track number `1`, the
 ```text
 title:       01 - London Calling
 tracknumber: 1
-comment:     Ford Sync REALLY Sucks
+comment:     Ford Sync REALLY Sucks v5
 codec:       MP3 (MPEG Layer III)
 bit rate:    192 kbps
 sample rate: 44.1 kHz
@@ -200,6 +208,32 @@ ID3:         v2.3, with an ID3v1 tag also written
 ```
 
 Only after conversion, tagging, and verification succeed does the script remove `London Calling.m4a`.
+
+### Compilation album
+
+Given a compilation track with these tags:
+
+```text
+title:       Respect
+artist:      Aretha Franklin
+album:       Soul Collection
+compilation: true
+tracknumber: 3
+```
+
+After processing, its relevant tags are:
+
+```text
+title:       03 - Respect (Aretha Franklin)
+artist:      Soul Collection
+album:       Soul Collection
+```
+
+If its original filename is `1-03. Aretha Franklin - Respect.mp3`, it is renamed to `1-03. Respect.mp3`. The cleanup is limited to compilation tracks and only removes the artist when it appears immediately before ` - ` at the start of the filename or after a prefix ending in a period.
+
+### Multi-disc album
+
+For an album whose first disc has tracks 1 through 12, both the title prefixes and `tracknumber` tags on disc two become `13`, `14`, and so on. Every track in the album gets `discnumber: 1` and `totaldiscs: 1`, preventing SYNC from applying its own disc handling.
 
 ### Adding music later
 
@@ -210,7 +244,7 @@ Suppose the drive contains 200 marked MP3 files and you add a new 10-track album
 If a directory contains both `Song.m4a` and `Song.mp3`, the script will not overwrite the existing MP3. It reports an error similar to:
 
 ```text
-Failed to update /Volumes/CAR-TUNES/Albums/Song.m4a: cannot replace Song.m4a: Song.mp3 already exists
+Failed to update /Volumes/CAR-TUNES/Albums/Song.m4a: cannot rename Song.m4a: Song.mp3 already exists
 ```
 
 Rename or remove the duplicate on your disposable USB copy, verify which file you want to keep, and run the script again.
@@ -241,10 +275,12 @@ The track-number tag is not a plain integer. Change a value such as `3/12` or `T
 
 ### An album still plays in the wrong order
 
-Check the title tags on the USB files—not just their filenames. Confirm that they begin with `01 -`, `02 -`, and so on, and that disc-two numbering follows the order you actually want. This script uses only the track number; it does not combine disc number and track number.
+Check the title tags on the USB files—not just their filenames. Confirm that they begin with `01 -`, `02 -`, and so on. For a multi-disc album, also confirm that every track has the same `album` and `albumartist` values and correct `discnumber`/`totaldiscs` tags; those fields are used to calculate the continuous title prefixes.
 
 ## Implementation and safety details
 
+- The script reads all metadata before making changes so it can calculate album-wide numbering.
+- Multi-disc albums are grouped by `album` and `albumartist`; each disc starts after the highest track number on the preceding disc. The flattened number is written to both the title and track-number tag, while disc number and total discs are set to `1`.
 - Directories and files are processed in sorted order, although playback order is determined by the rewritten tags.
 - Progress is printed every 50 supported tracks checked.
 - MP3 comment variants are consolidated into one standard processed marker.
